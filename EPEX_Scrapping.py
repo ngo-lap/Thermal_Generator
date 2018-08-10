@@ -46,7 +46,6 @@ def get_df_from_epex(start: pd.Timestamp, country='FR'):
 
     week_interval = pd.DatetimeIndex(start=start, freq='-1D', periods=7)
     epex_tempo = pd.DataFrame(index=week_interval, data=country_dict)
-    epex_tempo = epex_tempo.astype('float', inplace=True)
     next_day_stamp = (week_interval[-1] - pd.to_timedelta(1, unit='D'))
 
     return epex_tempo, next_day_stamp
@@ -62,6 +61,12 @@ def process_datetime_df(df_agg: pd.DataFrame):
     df_melted.index = df_melted['Time']
     df_melted.drop(['index', 'date_str', 'Time', 'Hour'], axis=1, inplace=True)
     df_melted.sort_index(inplace=True)
+
+    # Process the invalid data points
+    df_melted.fillna(method='ffill', inplace=True)
+    df_melted[df_melted['DAM'].str.contains('–')] = np.nan
+    df_melted.fillna(method='ffill', inplace=True)
+    df_melted = df_melted.astype('float')
 
     return df_melted
 
@@ -85,3 +90,10 @@ def epex_date(start: pd.Timestamp, country='FR', nbr_weeks=3):
     df_agg_hour = process_datetime_df(df_agg)
 
     return df_agg, df_agg_hour
+
+
+if __name__ == '__main__':
+
+    start_date = pd.Timestamp('2015-12-31')
+    df, df_hour = epex_date(start=start_date, country='DE/AT', nbr_weeks=52)
+    df_hour.info()
