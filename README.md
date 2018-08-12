@@ -26,7 +26,10 @@ be greatly appreciated.
 ## Dependencies 
 
 This project relies on : the Python package for optimization problem [optlang](https://pypi.org/project/optlang/) for the model formulation, 
-the interactive visualization library [Bokeh](https://bokeh.pydata.org/en/latest/) and the standard `Matplotlib` and `seaborn` visualization packages.
+the interactive visualization library [Bokeh](https://bokeh.pydata.org/en/latest/) and the standard `Matplotlib` and `seaborn` visualization packages. After installinf `optlang`, necessary components for the model need to be imported as follows : 
+
+`from optlang import Objective, Variable, Constraint, Model`
+
 The `EPEX_Scrapping` function also requires `requests` and `BeautifulSoup` which are already installed in the standard Anaconda Distribution. 
 
 ## Instruction 
