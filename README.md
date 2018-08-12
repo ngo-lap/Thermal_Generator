@@ -17,6 +17,10 @@ This project is created based on the need for a realistic and robust tool for fe
 power generators participating in day-ahead markets. These analyses are a crucial part of the energy project management coursework in the Master Program -
 Energy Environment: Science Technology and Management ([STEEM](https://portail.polytechnique.edu/graduatedegree/master/steem/program-structure)) at Ecole Polytechnique. 
 
+## Contributors 
+
+We would like to thank our fellow friends at Ecole Polytechnique who contributed significantly to the project, especially with the case study : Mr. Muhammad Zacky Asyari, Ms. Maria Luisa Scarano Pereir, Mr. Lugas Raka Adrianto, Ms. Benyakhlef Sara.
+
 ## Future Prospect 
 
 We are currently considering the possibility of incorporating a storage system into this project in order to widen the applicable types of generators
