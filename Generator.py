@@ -5,10 +5,10 @@ import numpy as np
 import seaborn as sns
 import matplotlib.dates as mdates
 import timeit
-from bokeh.plotting import figure, output_file, ColumnDataSource
+from bokeh.plotting import figure, output_file, ColumnDataSource, output_notebook
 from bokeh.io import show
 from bokeh.models import HoverTool
-from bokeh.layouts import row, column
+from bokeh.layouts import column
 
 sns.set()
 plt.rc('font', size=15)
@@ -18,8 +18,8 @@ plt.rc('font', size=15)
 
 class Thermal_Generator(object):
 
-    def __init__(self, price: pd.DataFrame, Efficiency=[0.58, 0.47], Power=[100, 40], Emission_Factor=0.25, CF=0.75, Startup_cold_time=2, Startup_dep_cost=60,
-                 Startup_fuel=2.8, Startup_fixed_cost=7000, Minimum_downtime=None, Name='Thermal_Generator'):
+    def __init__(self, Name: str, price: pd.DataFrame, Efficiency=[0.58, 0.47], Power=[100, 40], Emission_Factor=0.25, CF=0.75, Startup_cold_time=2, Startup_dep_cost=60,
+                 Startup_fuel=2.8, Minimum_downtime=None, Cost_fixed_OM=28100, Cost_var_OM=2.3):
 
         self.Name = Name
         self.Efficiency = Efficiency   # Efficiencies of 2 levels of operations, [0.58, 0.47]
@@ -35,10 +35,9 @@ class Thermal_Generator(object):
         self.Startup_cold_time = Startup_cold_time   # Time for cold startup coal (3), and 2 for CCGT [hour], 2
         self.Startup_dep_cost = Startup_dep_cost        # Startup depriciation costs (60 for CCGT, 105 for coal) [€], 60
         self.Startup_fuel = Startup_fuel          # Startup fuel requirement (2.8 for CCGT,2.7 for coal) [MW_thermal / MW_e], 2.8
-        self.Startup_fixed_cost = Startup_fixed_cost    # Fixed Startup Cost [€], 7000
         self.Minimum_downtime = Minimum_downtime        # Minimum downtime
-        self.Cost_fixed_OM = 30568*0.9189       # [€/MW/year] [IEA2015, 0.81 is the 2018 exchange rate in 2018, 0.9189 is in 2015] 30568 for ccgt , 41303 for coal-fired, 30568*0.9189
-        self.Cost_var_OM = 2.5*0.9189           # [€/MWh_e] [IEA 2015, the 0.81 is the exchange rate in 2018] 2.5 for ccgt, 4.4 for coal.
+        self.Cost_fixed_OM = Cost_fixed_OM      # [€/MW/year] [IEA2015, 0.81 is the 2018 exchange rate in 2018, 0.9189 is in 2015] 30568 for ccgt , 41303 for coal-fired, 30568*0.9189
+        self.Cost_var_OM = Cost_var_OM         # [€/MWh_e] [IEA 2015, the 0.81 is the exchange rate in 2018] 2.5 for ccgt, 4.4 for coal.
 
         self.N_mode = len(self.Efficiency)
 
@@ -57,12 +56,12 @@ class Thermal_Generator(object):
 
         self.Commodity_Price.fuel_price = pd.DataFrame(index=price.index, data=self.Commodity_Price.fuel_price)
         self.Operation_Profile = {'STMC': None, 'Energy_Profile': None, 'Capacity Factor': 'Only exists for yearly horizon'
-                                        , 'Start-up Numbers': None}
-        self.Finance_Metrics = {'Revenue': 0, 'O&M': 0, 'Net Profit': 0, 'Average STMC': 0}
+                                                , 'Start-up Numbers': None}
+        self.Finance_Metrics = {'Revenue': 0, 'OPEX': 0, 'Gross Profit': 0, 'Average STMC': 0}
         self.optim_model = None
         self.solutions = None
-        self.var = {}
-        self.cons = {}
+        self._var = {}      # list of lists of Variable
+        self._cons = {}     # list of lists of Constraint
 
     def optimization_problem(self):
 
@@ -85,7 +84,7 @@ class Thermal_Generator(object):
 
         # Variable Registration
         # -----------------------------------------------------------------------------------
-        model = Model(name='Thermal Generation')
+        model = Model(name=self.Name)
         X = [[]]*mode   # list of lists, representing state variables for each mode of operation
         S = [Variable(name='start_' + str(t), type='binary') for t in range(N)]
         F = [Variable(name='shutdown_' + str(t), type='binary') for t in range(N)]
@@ -124,7 +123,7 @@ class Thermal_Generator(object):
             # 1.2 Startup - shutdown constraint:
             ctr_start_shut[t] = Constraint(S[t] + F[t], ub=1, name='ctr_start_shut_' + str(t))
 
-        for i, t in enumerate(range(alpha, N-alpha)):     # 2, 21
+        for i, t in enumerate(range(alpha, N-1)):     # 2, 21
 
             # 1.3 Startup - shutdown constraint 2 :
             ctr_start_01[i] = Constraint(S[t - alpha] - F[t] - sum(X[m][t+1] - X[m][t] for m in range(mode)), lb=0, ub=0, name='ctr_start_01_' + str(t))
@@ -134,7 +133,7 @@ class Thermal_Generator(object):
                                          ub=alpha, name='ctr_start_02_' + str(t))
 
         ctr_start_02[N-alpha-1] = Constraint(sum(sum(X[m][N - 1 - k] for k in range(1, alpha)) for m in range(mode)) + alpha*S[N - 1 - alpha],
-                                        ub=alpha, name='ctr_start_02_' + str(N - 1))
+                                             ub=alpha, name='ctr_start_02_' + str(N - 1))
 
         # 1.5 Capacity Factor constraint : will be done below
 
@@ -157,7 +156,7 @@ class Thermal_Generator(object):
             #                                        - X[m][t]*self.Cost_var_OM for t in range(N)), direction='max')
 
             obj_coeff_rev = dict(zip(X[m], [energy[m]*(price_elec[t] - price_fuel[m].values[t] - price_carbon[t]*self.Emission_Intensity[m]
-                                            - self.Cost_var_OM) for t in range(N)]))
+                                                       - self.Cost_var_OM) for t in range(N)]))
             obj_coeff_dict.update(obj_coeff_rev)
 
         # for elem in obj_list:
@@ -192,7 +191,7 @@ class Thermal_Generator(object):
                     lb=0, ub=beta, name='ctr_min_time_' + str(t))
 
             cons_list.extend(ctr_min_time)
-            self.cons['ctr_min_time'] = ctr_min_time
+            self._cons['ctr_min_time'] = ctr_min_time
 
         model.add(var_list)
 
@@ -214,26 +213,26 @@ class Thermal_Generator(object):
             model.add(ctr_capacity_factor)
             model.constraints['ctr_capacity_factor'].ub = self.CF*365*24
             ctr_capacity_factor.set_linear_coefficients(coeff_capacity_factor_dict)
-            self.cons['ctr_capacity_factor'] = ctr_capacity_factor
+            self._cons['ctr_capacity_factor'] = ctr_capacity_factor
 
         # 1.6 Minimum shutdown time :
 
         # for i, t in enumerate(range(N-beta)):
 
-            # ctr_min_time[i] = Constraint(sum(sum(X[m][t + k] for k in range(1, beta + 1)) for m in range(mode)) + beta * F[t],
-            #     lb=0, ub=beta, name='ctr_min_time_' + str(t))
+        # ctr_min_time[i] = Constraint(sum(sum(X[m][t + k] for k in range(1, beta + 1)) for m in range(mode)) + beta * F[t],
+        #     lb=0, ub=beta, name='ctr_min_time_' + str(t))
 
-            # ctr_min_time[i] = Constraint(0, lb=0, name='ctr_min_time_' + str(t))
-            # model.add(ctr_min_time[i])
-            # model.constraints['ctr_min_time_' + str(t)].ub = beta
-            # dict_tempo = {F[t]: beta}
-            #
-            # for m in range(mode):
-            #
-            #     dict_tempo_1 = dict(zip(X[m][t:(t+beta+1)], [1]*beta))
-            #     dict_tempo.update(dict_tempo_1)
-            #
-            # ctr_min_time[i].set_linear_coefficients(dict_tempo)
+        # ctr_min_time[i] = Constraint(0, lb=0, name='ctr_min_time_' + str(t))
+        # model.add(ctr_min_time[i])
+        # model.constraints['ctr_min_time_' + str(t)].ub = beta
+        # dict_tempo = {F[t]: beta}
+        #
+        # for m in range(mode):
+        #
+        #     dict_tempo_1 = dict(zip(X[m][t:(t+beta+1)], [1]*beta))
+        #     dict_tempo.update(dict_tempo_1)
+        #
+        # ctr_min_time[i].set_linear_coefficients(dict_tempo)
 
         # Add other constraints and objective function
         # ------------------------------------------------------------------------------------------------
@@ -245,14 +244,15 @@ class Thermal_Generator(object):
         self.optim_model = model
 
         for m in range(mode):
-            self.var['state_mode_' + str(m)] = X[m]
+            self._var['state_mode_' + str(m)] = X[m]
 
-        self.var['Start'] = S
-        self.var['Shut'] = F
-        self.cons.update({'ctr_init_state': ctr_init_state, 'ctr_unique_mode': ctr_unique_mode, 'ctr_start_shut': ctr_start_shut,
-                                    'ctr_start_01': ctr_start_01, 'ctr_start_02': ctr_start_02})
+        self._var['Start'] = S
+        self._var['Shut'] = F
+        self._cons.update({'ctr_init_state': ctr_init_state, 'ctr_unique_mode': ctr_unique_mode, 'ctr_start_shut': ctr_start_shut,
+                          'ctr_start_01': ctr_start_01, 'ctr_start_02': ctr_start_02})
+        print('Object Creation Finished')
 
-    def solve_optim_problem(self, solver='glpk'):
+    def solve_optim_problem(self):
 
         print('Solving the problem - please wait')
         assert self.optim_model.objective.direction == 'max', 'We must maximize the objective function'
@@ -262,16 +262,19 @@ class Thermal_Generator(object):
         print('Solver Status :', results.upper())
         print('Objective Value : ', self.optim_model.objective.value)
 
-        return results
+        if results != 'optimal':
+            print('The problem is infeasible or unbounded, please check again your configuration and data !!!!!')
 
     def solution_values(self):
 
-        sol = self.var
+        sol = self._var
         for key, val in sol.items():
             sol[key] = [vari.primal for vari in val]
 
         sol_df = pd.DataFrame(index=self.input_price.index, data=sol)
+        sol_df = sol_df.astype('int')
         self.solutions = sol_df
+        # self.solutions = sol_df.astype('int')
 
         # Operational Profile Calculation :
         # --------------------------------------------------------------------------------------------------------------
@@ -288,7 +291,7 @@ class Thermal_Generator(object):
         self.Operation_Profile['Energy_Profile']['Total'] = energy_profile.sum(axis=1)
 
         STMC = state_mode.apply(lambda x: x * (self.Commodity_Price.fuel_price[x.name] + self.Emission_Intensity[x.name]
-                                * self.input_price['carbon'] + self.Cost_var_OM), axis=0).sum(axis=1)
+                                               * self.input_price['carbon'] + self.Cost_var_OM), axis=0).sum(axis=1)
 
         index = self.input_price.index
         time_interval = (index[-1] - index[0]).days
@@ -298,48 +301,30 @@ class Thermal_Generator(object):
         self.Operation_Profile['Capacity Factor'] = state_mode.sum().sum() / (365 * 24)
 
         STMC_nonzero = STMC.replace(0, np.nan) + \
-                        self.Cost_fixed_OM * np.array(self.Power).max()*(time_interval/365)/(energy_profile.sum(axis=1).sum())
+                       self.Cost_fixed_OM * np.array(self.Power).max()*(time_interval/365)/(energy_profile.sum(axis=1).sum())
 
-        self.Finance_Metrics['Revenue'] = self.input_price['electricity']*energy_profile.sum(axis=1)
-        self.Finance_Metrics['Net Profit'] = self.optim_model.objective.value - \
+        self.Finance_Metrics['Revenue'] = (self.input_price['electricity']*energy_profile.sum(axis=1)).sum()
+        self.Finance_Metrics['Gross Profit'] = self.optim_model.objective.value - \
                                              self.Cost_fixed_OM * np.array(self.Power).max()*time_interval/365
-        self.Finance_Metrics['O&M'] = self.Finance_Metrics['Net Profit'] - self.Finance_Metrics['Revenue']
+        self.Finance_Metrics['OPEX'] = -(self.Finance_Metrics['Gross Profit'] - self.Finance_Metrics['Revenue'])
         self.Finance_Metrics['Average STMC'] = STMC_nonzero.mean()
 
-        print('Net Profit (before tax): ', self.Finance_Metrics['Net Profit'])
+        print('Gross Profit: ', int(self.Finance_Metrics['Gross Profit'])*1e-6, '€ mil')
 
         return sol_df
 
-    def profile_visualization(self):
+    def visualization_non_interactive(self):
 
-        data_vis = self.solutions
-        start_data = data_vis['Start']*self.Energy[0]
-        shut_data = data_vis['Shut'] * self.Energy[0]
-        # start_data[start_data == 0] = np.nan
-        # shut_data[shut_data == 0] = np.nan
+        energy_profile = self.Operation_Profile['Energy_Profile']['Total']
+        STMC = self.Operation_Profile['STMC']
+        Start = self.solutions['Start'] * self.Energy[0]
+        Shut = self.solutions['Shut'] * self.Energy[0]
 
         fig, ax = plt.subplots(nrows=2, sharex=True)
 
-        state_mode = data_vis[data_vis.columns[data_vis.columns.str.contains('state_mode')]]
-
-        # Convert from state to integer
-        col_str = state_mode.columns.tolist()
-        col_num = [int(name.replace('state_mode_', '')) for name in col_str]
-        state_mode.columns = col_num
-        energy_profile = state_mode.apply(lambda x: x * self.Energy[x.name], axis=0)
-        energy_mode = state_mode.apply(lambda x: x * self.Energy[x.name], axis=0).sum(axis=1)
-
-        # self.Operation_Profile['Energy_Generation'] = energy_mode
-        # self.Operation_Profile['Energy_Profile'] = energy_profile
-
-        # Calculating STMC :
-
-        STMC = state_mode.apply(lambda x: x*(self.Commodity_Price.fuel_price[x.name] +
-                self.Emission_Intensity[x.name]*self.input_price['carbon'] + self.Cost_var_OM), axis=0).sum(axis=1)
-
-        ax[0].step(energy_mode.index, energy_mode, label='Energy Generation', where='post', linewidth=1)
-        ax[0].step(energy_mode.index, start_data, label='Startup', color='green', where='post', linewidth=1)
-        ax[0].step(energy_mode.index, shut_data, label='Shutdown', color='red', where='post', linewidth=1)
+        ax[0].step(energy_profile.index, energy_profile, label='Energy Generation', where='post', linewidth=1)
+        ax[0].step(energy_profile.index, Start, label='Startup', color='green', where='post', linewidth=1)
+        ax[0].step(energy_profile.index, Shut, label='Shutdown', color='red', where='post', linewidth=1)
         ax[0].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
         ax[0].set_ylabel('MWh')
         ax[0].legend(shadow='False', loc='best')
@@ -355,7 +340,7 @@ class Thermal_Generator(object):
         plt.margins(0.02)
         plt.show()
 
-    def visualization_interactive(self):
+    def visualization_interactive(self, mode=None):
 
         electricity = self.input_price.electricity
         energy_profile = self.Operation_Profile['Energy_Profile']['Total']
@@ -364,14 +349,28 @@ class Thermal_Generator(object):
         Shut = self.solutions['Shut'] * self.Energy[0]
         old_df = pd.concat([electricity, energy_profile, STMC, Start, Shut], axis=1)
         old_df.columns = ['electricity', 'energy_profile', 'STMC', 'Start', 'Shut']
-        old_df['Start'].loc[old_df['Start'] == 0] = np.nan
+        old_df.loc[old_df['Start'] == 0, 'Start'] = np.nan
         df = old_df.reset_index()
         df['date_tooltips'] = [x.strftime("%Y-%m-%d %H:%M:%S") for x in df['time']]
         source = ColumnDataSource(df)
 
         fig = figure(x_axis_label='Time', y_axis_label='€/MWh', x_axis_type='datetime',
-                     tools='wheel_zoom, box_zoom, pan, reset, hover', logo=None
-                     , plot_height=330, plot_width=1425, title='Dispatch Profile')
+                     tools='wheel_zoom, box_zoom, pan, reset', logo=None
+                     , plot_height=330, title='Price and Cost')
+
+        fig0 = figure(x_axis_label='Time', y_axis_label='MWh', x_axis_type='datetime',
+                      tools='wheel_zoom, box_zoom, pan, reset', plot_height=330, plot_width=1425,
+                      title='Dispatch Profile')
+
+        if mode == 'Notebook':
+            fig.plot_width = 950
+            fig0.plot_width = 950
+            output_notebook()
+        else:
+            fig.plot_width = 1400
+            fig0.plot_width = 1400
+            output_file('First_Try_Generator.html')
+
         fig.background_fill_color = 'beige'
         fig.background_fill_alpha = 0.5
 
@@ -381,9 +380,6 @@ class Thermal_Generator(object):
         hover = HoverTool(tooltips=[('Time', '@date_tooltips'), ('DAM Price', '@electricity'), ('Marginal Cost', '@STMC')],
                           formatters={'time': 'datetime'})  # ('Time', '@time{%F}')
         fig.add_tools(hover)
-
-        fig0 = figure(x_axis_label='Time', y_axis_label='MWh', x_axis_type='datetime',
-                      tools='wheel_zoom, box_zoom, pan, reset', plot_height=330, plot_width=1425, title='Price and Cost')
 
         fig0.background_fill_color = 'beige'
         fig0.background_fill_alpha = 0.5
@@ -397,15 +393,14 @@ class Thermal_Generator(object):
         fig0.y_range = fig.y_range
 
         layout = column(fig0, fig)
-        output_file('First_Try_Generator.html')
         show(layout)
 
 
 if __name__ == '__main__':
 
-    data = pd.read_csv('CCGT_UK.csv', index_col='time', parse_dates=True)
-    price_data = data.loc['2015-1-1 00:00:00':'2015-12-31 23:00:00']      # to see the shut down effect : '2015-08-01 00:00:00':'2015-10-01 23:00:00'
-    gen = Thermal_Generator(price=price_data)
+    data = pd.read_csv('data/CCGT_UK.csv', index_col='time', parse_dates=True)
+    # price_data = data.loc['2015-08-01 00:00:00':'2015-10-01 23:00:00']      # to see the shut down effect : '2015-08-01 00:00:00':'2015-10-01 23:00:00'
+    gen = Thermal_Generator(Name='Demo', price=data)
 
     tic = timeit.default_timer()
     gen.optimization_problem()
@@ -419,7 +414,7 @@ if __name__ == '__main__':
     print('Solving time :', toc_solve - toc_prob)
 
     output = gen.solution_values()
-    # gen.profile_visualization()
+    # gen.visualization_non_interactive()
     gen.visualization_interactive()
     print('Average STMC: ', gen.Finance_Metrics['Average STMC'])
 

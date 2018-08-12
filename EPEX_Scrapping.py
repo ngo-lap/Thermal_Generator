@@ -11,8 +11,8 @@ def get_df_from_epex(start: pd.Timestamp, country='FR'):
     # Get the url
     url_init = 'https://www.epexspot.com/en/market-data/dayaheadauction/auction-table/'
     url_var = start.strftime('%Y-%m-%d')
-    url_end = '/FR'
-    url = url_init + url_var + url_end
+    # url_end = '/FR'
+    url = url_init + url_var
 
     # Get the response :
     page = requests.get(url)
@@ -71,7 +71,7 @@ def process_datetime_df(df_agg: pd.DataFrame):
     return df_melted
 
 
-def epex_date(start: pd.Timestamp, country='FR', nbr_weeks=3):
+def epex_DAM(start: pd.Timestamp, country='FR', nbr_weeks=3):
     """This function will perform nbr_weeks times the get_df_from_epex function and returns the aggregate dataframe """
     import pandas as pd
     import requests
@@ -94,6 +94,6 @@ def epex_date(start: pd.Timestamp, country='FR', nbr_weeks=3):
 
 if __name__ == '__main__':
 
-    start_date = pd.Timestamp('2015-12-31')
-    df, df_hour = epex_date(start=start_date, country='DE/AT', nbr_weeks=52)
-    df_hour.info()
+    start_date = pd.Timestamp.today().date()    # pd.Timestamp('2015-12-31')
+    df, df_hour = epex_DAM(start=start_date, country='DE/AT', nbr_weeks=1)
+    print(df_hour.head(10))
