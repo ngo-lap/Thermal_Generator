@@ -28,3 +28,7 @@ be greatly appreciated.
 This project relies on : the Python package for optimization problem [optlang](https://pypi.org/project/optlang/) for the model formulation, 
 the interactive visualization library [Bokeh](https://bokeh.pydata.org/en/latest/) and the standard `Matplotlib` and `seaborn` visualization packages.
 The `EPEX_Scrapping` function also requires `requests` and `BeautifulSoup` which are already installed in the standard Anaconda Distribution. 
+
+## Instruction 
+
+We suggest you to read through the `Model and Syntax` notebook first to apprehend the basic assumption of the model. Then the `Tutorials` notebook will briefly demonstrates the procedure for working with `Thermal_Generator`. Finally, a case study is provided in `Case Study - Carbon Price Mechanisms` notebook, which will apply `Thermal_Generator` to investigate the carbon price mechanisms on generators running on coal and gas in two different market : Germany and the United Kingdom.
