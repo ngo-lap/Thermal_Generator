@@ -13,7 +13,7 @@ The package also provides the function `EPEX_Scrapping` for scrapping the electr
 
 ## Who is it for? 
 
-This project is created based on the need for a realistic and robust tool for feasibility analysis of energy portfolios involving coal-fired and gas-fired 
+This project is created based on the need for a realistic and robust tool for feasibility analyses of energy portfolios involving coal-fired and gas-fired 
 power generators participating in day-ahead markets. These analyses are a crucial part of the energy project management coursework in the Master Program -
 Energy Environment: Science Technology and Management ([STEEM](https://portail.polytechnique.edu/graduatedegree/master/steem/program-structure)) at Ecole Polytechnique. 
 
